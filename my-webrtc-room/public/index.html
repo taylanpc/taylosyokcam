@@ -1,6 +1,5 @@
 <body>
 
-    <script src="capacitor.js"></script> 
     <script src="/socket.io/socket.io.js"></script>
     
     <h1>TaylosCAM</h1>
@@ -26,7 +25,8 @@
 // =======================================================
 // Global Değişkenler ve Capacitor Tanımları
 // =======================================================
-const socket = io();
+// DÜZELTME: Sunucu adresini ekledik. Artık PC'de çalışırken 404 hatası vermemeli.
+const socket = io('https://taylosyokcam.onrender.com'); 
 const localVideo = document.getElementById('localVideo');
 const videosContainer = document.getElementById('videos');
 const peers = {}; 
@@ -36,7 +36,7 @@ let localStream;
 let mediaRecorder;
 let recordedChunks = []; 
 
-// Capacitor API'lerini içeri aktarma (Artık 'Capacitor is not defined' hatası vermemeli)
+// Capacitor API'lerini içeri aktarma (Android'de çalışacaktır)
 const { Plugins } = Capacitor;
 const { Permissions } = Plugins; 
 
@@ -46,27 +46,34 @@ const { Permissions } = Plugins;
 
 async function checkAndRequestPermissions() {
     
-    // --- Kamera İzni Kontrol ve İsteği ---
-    let cameraStatus = await Permissions.query({ name: 'camera' });
-    if (cameraStatus.state !== 'granted') {
-        let result = await Permissions.request({ name: 'camera' });
-        if (result.camera !== 'granted') {
-            alert('Kamera izni verilmedi. Uygulama çalışmayacaktır.');
-            return false;
+    // PC'de bu kod çalışmaz, sadece Android'de çalışır.
+    try {
+        // --- Kamera İzni Kontrol ve İsteği ---
+        let cameraStatus = await Permissions.query({ name: 'camera' });
+        if (cameraStatus.state !== 'granted') {
+            let result = await Permissions.request({ name: 'camera' });
+            if (result.camera !== 'granted') {
+                alert('Kamera izni verilmedi. Uygulama çalışmayacaktır.');
+                return false;
+            }
         }
-    }
 
-    // --- Mikrofon İzni Kontrol ve İsteği ---
-    let microphoneStatus = await Permissions.query({ name: 'microphone' });
-    if (microphoneStatus.state !== 'granted') {
-        let result = await Permissions.request({ name: 'microphone' });
-        if (result.microphone !== 'granted') {
-            alert('Mikrofon izni verilmedi. Uygulama çalışmayacaktır.');
-            return false;
+        // --- Mikrofon İzni Kontrol ve İsteği ---
+        let microphoneStatus = await Permissions.query({ name: 'microphone' });
+        if (microphoneStatus.state !== 'granted') {
+            let result = await Permissions.request({ name: 'microphone' });
+            if (result.microphone !== 'granted') {
+                alert('Mikrofon izni verilmedi. Uygulama çalışmayacaktır.');
+                return false;
+            }
         }
+        
+        return true; // İzinler başarılı
+    } catch(e) {
+        // PC'de test ediyorsanız bu hatayı alın:
+        console.warn("Capacitor izin kontrolü başarısız. Sadece mobil uygulamada çalışır. İzin kontrolünü geçiyoruz.");
+        return true; // PC'de WebRTC'nin kendi izin isteme mekanizmasına bırakıyoruz.
     }
-    
-    return true; // İzinler başarılı
 }
 
 
