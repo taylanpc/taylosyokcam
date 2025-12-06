@@ -1,3 +1,19 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaylosCAM WebRTC</title>
+    <style>
+        /* Basit CSS stil ekleyelim ki daha düzgün görünsün */
+        body { font-family: sans-serif; margin: 20px; }
+        #videos { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 20px; }
+        #videos div { border: 1px solid #ccc; padding: 10px; border-radius: 8px; }
+        video { width: 100%; max-width: 400px; height: auto; background: black; }
+        .controls input, .controls button { padding: 10px; margin: 5px; border-radius: 5px; border: 1px solid #ccc; }
+        #disconnectButton { background-color: #dc3545; color: white; border: none; }
+    </style>
+</head>
 <body>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -23,9 +39,9 @@
 
 <script>
 // =======================================================
-// Global Değişkenler ve Capacitor Tanımları
+// Global Değişkenler ve Tanımlar
 // =======================================================
-// DÜZELTME 1: Sunucu adresini ekledik. (Aynı Odaya Girmeme sorununu çözmek için kritik)
+// Sunucu adresi doğru olmalı:
 const socket = io('https://taylosyokcam.onrender.com'); 
 const localVideo = document.getElementById('localVideo');
 const videosContainer = document.getElementById('videos');
@@ -36,52 +52,12 @@ let localStream;
 let mediaRecorder;
 let recordedChunks = []; 
 
-// DÜZELTME 2: Capacitor API'lerini PC'de hata vermemesi için kontrol ederek içeri aktardık.
-let Plugins = {};
-let Permissions = {};
-if (typeof Capacitor !== 'undefined' && Capacitor.Plugins) {
-    Plugins = Capacitor.Plugins;
-    Permissions = Plugins.Permissions;
-}
-
-
 // =======================================================
-// 1. İzin Kontrol Fonksiyonu (Nihai)
+// 1. İzin Kontrol Fonksiyonu (Kullanılmıyor)
 // =======================================================
 
 async function checkAndRequestPermissions() {
-    
-    if (typeof Capacitor === 'undefined' || !Permissions || !Permissions.query) {
-        console.warn("Capacitor izin kontrolü başarısız. Sadece mobil uygulamada çalışır. İzin kontrolünü geçiyoruz.");
-        return true; 
-    }
-    
-    try {
-        // --- Kamera İzni Kontrol ve İsteği ---
-        let cameraStatus = await Permissions.query({ name: 'camera' });
-        if (cameraStatus.state !== 'granted') {
-            let result = await Permissions.request({ name: 'camera' });
-            if (result.camera !== 'granted') {
-                alert('Kamera izni verilmedi. Uygulama çalışmayacaktır.');
-                return false;
-            }
-        }
-
-        // --- Mikrofon İzni Kontrol ve İsteği ---
-        let microphoneStatus = await Permissions.query({ name: 'microphone' });
-        if (microphoneStatus.state !== 'granted') {
-            let result = await Permissions.request({ name: 'microphone' });
-            if (result.microphone !== 'granted') {
-                alert('Mikrofon izni verilmedi. Uygulama çalışmayacaktır.');
-                return false;
-            }
-        }
-        
-        return true; // İzinler başarılı
-    } catch(e) {
-        console.warn("Capacitor izin kontrolü sırasında bir hata oluştu. İzin kontrolünü geçiyoruz.");
-        return true; 
-    }
+    return true; 
 }
 
 
@@ -103,15 +79,12 @@ function startRecording(stream) {
         }
     };
 
-    // Kayıt durdurulduğunda dosyayı hazırlayıp kaydetme
     mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         
-        // Dosya adı oluşturma: TaylosCAM_YYYYMMDD_HHMMSS.webm
         const now = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const fileName = `TaylosCAM_${now}.webm`;
 
-        // Dosya linki oluşturma ve indirme (Telefonda "İndirilenler" klasörüne kaydeder)
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         document.body.appendChild(a);
@@ -149,13 +122,8 @@ async function connectRoom() {
         return;
     }
     
-    // İzin Kontrolünü Ekleme (APK İzin Sorunu Çözümü)
-    const hasPermission = await checkAndRequestPermissions();
-    if (!hasPermission) {
-        return;
-    }
-
     try {
+        // Bu satır, kameraya erişmeye çalışırken gerekli izinleri tarayıcıdan/WebView'dan ister.
         localStream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: { echoCancellation: true }
@@ -171,12 +139,12 @@ async function connectRoom() {
         socket.emit('joinRoom', roomID);
 
     } catch (err) {
-        console.error("Medya erişim hatası:", err);
+        console.error("Medya erişim hatası (İzin verilmedi veya cihaz yok):", err);
+        alert("Kamera/Mikrofon erişimine izin vermeniz gerekiyor.");
     }
 }
     
 function disconnect() {
-    // Kaydı Durdurma ve Kaydetme (Uygulamadan çıkılırken)
     stopRecording(); 
     
     for (const id in peers) {
@@ -310,3 +278,4 @@ window.disconnect = disconnect;
 window.addEventListener('beforeunload', stopRecording);
 </script>
 </body>
+</html>
