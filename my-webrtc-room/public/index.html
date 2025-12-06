@@ -3,279 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TaylosCAM WebRTC</title>
+    <title>TaylosCAM Agora Tarayıcı Testi</title>
     <style>
-        /* Basit CSS stil ekleyelim ki daha düzgün görünsün */
         body { font-family: sans-serif; margin: 20px; }
         #videos { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 20px; }
-        #videos div { border: 1px solid #ccc; padding: 10px; border-radius: 8px; }
-        video { width: 100%; max-width: 400px; height: auto; background: black; }
-        .controls input, .controls button { padding: 10px; margin: 5px; border-radius: 5px; border: 1px solid #ccc; }
+        .player { width: 100%; max-width: 400px; height: 300px; background: black; margin-top: 5px; border: 1px solid #ccc; border-radius: 8px; }
+        .controls button { padding: 10px; margin: 5px; border-radius: 5px; }
         #disconnectButton { background-color: #dc3545; color: white; border: none; }
     </style>
 </head>
 <body>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
     
-    <h1>TaylosCAM</h1>
+    <h1>TaylosCAM Tarayıcı Testi</h1>
     
     <div class="controls">
-        <input type="text" id="roomInput" placeholder="Oda Adı">
+        <input type="text" id="roomInput" placeholder="Oda Adı" value="test_oda1">
         <button onclick="connectRoom()" id="joinButton">Odaya Katıl</button>
-        <button onclick="toggleVideo()" disabled id="videoButton">Video Kapat</button>
-        <button onclick="toggleAudio()" disabled id="audioButton">Mikrofon Kapat</button>
-        <button onclick="disconnect()" disabled id="disconnectButton" style="background-color: #dc3545;">Odadan Ayrıl</button>
+        <button onclick="disconnect()" disabled id="disconnectButton">Odadan Ayrıl</button>
     </div>
-
-    <hr>
     
     <div id="videos">
-        <div id="localVideoContainer">
-            <h3>Siz (Local)</h3>
-            <video id="localVideo" autoplay muted></video>
-        </div>
+        <div id="local-player" class="player"><h3>Siz (Local)</h3></div>
     </div>
 
 <script>
 // =======================================================
-// Global Değişkenler ve Tanımlar
+// Sizin Agora Bilgileriniz
 // =======================================================
-// Sunucu adresi doğru olmalı:
-const socket = io('https://taylosyokcam.onrender.com'); 
-const localVideo = document.getElementById('localVideo');
-const videosContainer = document.getElementById('videos');
-const peers = {}; 
-let localStream;
-
-// Kayıt değişkenleri
-let mediaRecorder;
-let recordedChunks = []; 
+const APP_ID = "c5635d92de804ae4a0142334625dba50"; 
+const TOKEN = "e9327df8a1e146bc87e9448c5caa89c1"; // Eğer yeni token almadıysanız eski token
+const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+let localTracks = [];
+const uid = Math.floor(Math.random() * 10000).toString(); // Rastgele Kullanıcı ID'si
 
 // =======================================================
-// 1. İzin Kontrol Fonksiyonu (Kullanılmıyor)
+// Olay Dinleyicileri (Karşı taraf bağlandığında/ayrıldığında)
 // =======================================================
-
-async function checkAndRequestPermissions() {
-    return true; 
-}
-
-
-// =======================================================
-// 2. Kayıt Fonksiyonları
-// =======================================================
-
-// Kaydı Başlatma Fonksiyonu
-function startRecording(stream) {
-    if (!stream) return;
-    
-    const options = { mimeType: 'video/webm; codecs=vp8' }; 
-    mediaRecorder = new MediaRecorder(stream, options);
-    recordedChunks = []; 
-
-    mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-        }
-    };
-
-    mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        
-        const now = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const fileName = `TaylosCAM_${now}.webm`;
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        document.body.appendChild(a);
-        a.style = 'display: none';
-        a.href = url;
-        a.download = fileName; 
-        a.click(); 
-        window.URL.revokeObjectURL(url);
-        
-        console.log("Kayıt dosyası indiriliyor:", fileName);
-    };
-
-    mediaRecorder.start(); 
-    console.log("Video kaydı başlatıldı...");
-}
-
-
-// Kaydı Durdurma Fonksiyonu (Uygulama Kapanınca Çalışır)
-function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-        console.log("Video kaydı durduruldu ve indirme başlatıldı.");
+client.on("user-published", async (user, mediaType) => {
+    await client.subscribe(user, mediaType);
+    if (mediaType === "video") {
+        const remoteVideoTrack = user.videoTrack;
+        const remotePlayerContainer = document.createElement("div");
+        remotePlayerContainer.id = `remote-player-${user.uid}`;
+        remotePlayerContainer.className = "player";
+        remotePlayerContainer.innerHTML = `<h3>Kullanıcı ${user.uid}</h3>`;
+        document.getElementById("videos").appendChild(remotePlayerContainer);
+        remoteVideoTrack.play(remotePlayerContainer.id);
     }
-}
+    if (mediaType === "audio") {
+        user.audioTrack.play();
+    }
+});
 
+client.on("user-unpublished", (user) => {
+    const remotePlayerContainer = document.getElementById(`remote-player-${user.uid}`);
+    if (remotePlayerContainer) remotePlayerContainer.remove();
+});
 
 // =======================================================
-// 3. WebRTC İşlevleri ve Socket.IO
+// Bağlantı Fonksiyonları
 // =======================================================
-
 async function connectRoom() {
     const roomID = document.getElementById('roomInput').value.trim();
-    if (!roomID) {
-        alert("Lütfen bir oda adı girin.");
-        return;
-    }
-    
+    if (!roomID) return alert("Lütfen Oda Adı girin.");
+
     try {
-        // Bu satır, kameraya erişmeye çalışırken gerekli izinleri tarayıcıdan/WebView'dan ister.
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: { echoCancellation: true }
-        });
-        localVideo.srcObject = localStream;
+        // 1. Odaya Katılma
+        await client.join(APP_ID, roomID, TOKEN, uid); 
         
-        // KAYDI BAŞLAT
-        startRecording(localStream); 
+        // 2. Yerel Akışı Oluşturma (Kamera ve Mikrofon izni istenir)
+        localTracks = await AgoraRTC.createMicrophoneAndCameraTracks();
         
-        document.querySelectorAll('.controls button').forEach(btn => btn.disabled = false);
+        // 3. Kendi Akışını Oynatma
+        localTracks[1].play("local-player"); 
+        
+        // 4. Akışı Yayınlama
+        await client.publish(localTracks);
+        
+        // Başarılı olursa butonları güncelle
         document.getElementById('joinButton').disabled = true;
-
-        socket.emit('joinRoom', roomID);
-
-    } catch (err) {
-        console.error("Medya erişim hatası (İzin verilmedi veya cihaz yok):", err);
-        alert("Kamera/Mikrofon erişimine izin vermeniz gerekiyor.");
-    }
-}
-    
-function disconnect() {
-    stopRecording(); 
-    
-    for (const id in peers) {
-        peers[id].close();
-    }
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-    }
-    window.location.reload();
-}
-
-// Socket.IO Olayları (Mevcut mantık korundu)
-socket.on('userJoined', (peerID) => {
-    const newPeer = createPeerConnection(peerID, true); 
-    peers[peerID] = newPeer;
-});
-
-socket.on('userDisconnected', (peerID) => {
-    if (peers[peerID]) {
-        peers[peerID].close();
-        delete peers[peerID];
-    }
-    const container = document.getElementById(`container-${peerID}`);
-    if (container) {
-        container.remove();
-    }
-});
-
-socket.on('signal', async (data) => {
-    if (!peers[data.senderID]) {
-        peers[data.senderID] = createPeerConnection(data.senderID, false); 
-    }
-
-    const peerConnection = peers[data.senderID];
-    const signal = data.signal;
-
-    try {
-        if (signal.type === 'offer') {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.emit('signal', { targetID: data.senderID, signal: peerConnection.localDescription });
+        document.getElementById('disconnectButton').disabled = false;
+        document.getElementById('local-player').innerHTML = '<h3>Siz (Local) - Yayında</h3>';
         
-        } else if (signal.type === 'answer') {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-        
-        } else if (signal.candidate) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
-        }
-    } catch (err) {
-        console.error("Sinyalleşme işleme hatası:", err);
-    }
-});
-
-function createPeerConnection(peerID, isInitiator) {
-    const peerConnection = new RTCPeerConnection({
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-    });
-
-    localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localStream);
-    });
-
-    peerConnection.onicecandidate = ({ candidate }) => {
-        if (candidate) {
-            socket.emit('signal', { targetID: peerID, signal: { candidate: candidate } });
-        }
-    };
-
-    peerConnection.ontrack = (event) => {
-        const remoteStream = event.streams[0];
-        let remoteVideo = document.getElementById(`video-${peerID}`);
-
-        if (!remoteVideo) {
-            const container = document.createElement('div');
-            container.id = `container-${peerID}`;
-            container.innerHTML = `<h3>Kullanıcı ${peerID.substring(0, 4)}...</h3>`;
-            remoteVideo = document.createElement('video');
-            remoteVideo.id = `video-${peerID}`;
-            remoteVideo.autoplay = true;
-            remoteVideo.srcObject = remoteStream;
-            container.appendChild(remoteVideo);
-            videosContainer.appendChild(container);
-        } else {
-            remoteVideo.srcObject = remoteStream;
-        }
-    };
-
-    if (isInitiator) {
-        peerConnection.onnegotiationneeded = async () => {
-            try {
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                socket.emit('signal', { targetID: peerID, signal: peerConnection.localDescription });
-            } catch (err) {
-                console.error("Teklif oluşturma hatası:", err);
-            }
-        };
-    }
-
-    return peerConnection;
-}
-
-// Buton Fonksiyonları (Mevcut mantık korundu)
-function toggleVideo() {
-    const videoTrack = localStream.getVideoTracks()[0];
-    if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        document.getElementById('videoButton').textContent = videoTrack.enabled ? 'Video Kapat' : 'Video Aç';
+    } catch (error) {
+        console.error("Bağlantı veya medya hatası:", error);
+        alert("Bağlantı Başarısız. Console'daki hatayı kontrol edin. Muhtemel sebep: Token Süresi Doldu.");
+        await disconnect();
     }
 }
 
-function toggleAudio() {
-    const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        document.getElementById('audioButton').textContent = audioTrack.enabled ? 'Mikrofon Kapat' : 'Mikrofon Aç';
+async function disconnect() {
+    for (track of localTracks) {
+        if (track) { track.stop(); track.close(); }
     }
+    localTracks = [];
+    try { await client.leave(); } catch(e) {}
+    
+    document.getElementById("videos").innerHTML = `<div id="local-player" class="player"><h3>Siz (Local)</h3></div>`;
+    document.getElementById('joinButton').disabled = false;
+    document.getElementById('disconnectButton').disabled = true;
 }
-
-// Global olarak erişilebilirliği koru
 window.connectRoom = connectRoom;
-window.toggleVideo = toggleVideo;
-window.toggleAudio = toggleAudio;
 window.disconnect = disconnect;
-
-// Uygulama kapandığında kaydı otomatik durdur ve kaydet
-window.addEventListener('beforeunload', stopRecording);
 </script>
 </body>
 </html>
