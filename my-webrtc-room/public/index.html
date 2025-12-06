@@ -1,18 +1,8 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>MiroTalk Basit Clone - WebRTC</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; }
-        #videos { display: flex; flex-wrap: wrap; gap: 10px; }
-        video { width: 320px; height: 240px; border: 1px solid #333; }
-        .controls button { padding: 10px; margin: 5px; }
-        .controls { margin-bottom: 20px; }
-    </style>
-    <script src="/socket.io/socket.io.js"></script>
-</head>
 <body>
 
+    <script src="capacitor.js"></script> 
+    <script src="/socket.io/socket.io.js"></script>
+    
     <h1>TaylosCAM</h1>
     
     <div class="controls">
@@ -46,9 +36,9 @@ let localStream;
 let mediaRecorder;
 let recordedChunks = []; 
 
-// Capacitor API'lerini içeri aktarma (İzin kontrolü için gerekli)
+// Capacitor API'lerini içeri aktarma (Artık 'Capacitor is not defined' hatası vermemeli)
 const { Plugins } = Capacitor;
-const { Permissions } = Plugins; // Sadece Permissions API'sini kullanıyoruz
+const { Permissions } = Plugins; 
 
 // =======================================================
 // 1. İzin Kontrol Fonksiyonu (KESİN ÇÖZÜM)
@@ -167,7 +157,6 @@ async function connectRoom() {
 
     } catch (err) {
         console.error("Medya erişim hatası:", err);
-        // Bu hata artık görünmemeli, çünkü izinler önceden kontrol edildi.
     }
 }
     
@@ -306,4 +295,3 @@ window.disconnect = disconnect;
 window.addEventListener('beforeunload', stopRecording);
 </script>
 </body>
-</html>
