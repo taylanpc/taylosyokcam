@@ -25,7 +25,7 @@
 // =======================================================
 // Global Değişkenler ve Capacitor Tanımları
 // =======================================================
-// DÜZELTME: Sunucu adresini ekledik. Artık PC'de çalışırken 404 hatası vermemeli.
+// DÜZELTME 1: Sunucu adresini ekledik. (Aynı Odaya Girmeme sorununu çözmek için kritik)
 const socket = io('https://taylosyokcam.onrender.com'); 
 const localVideo = document.getElementById('localVideo');
 const videosContainer = document.getElementById('videos');
@@ -36,17 +36,26 @@ let localStream;
 let mediaRecorder;
 let recordedChunks = []; 
 
-// Capacitor API'lerini içeri aktarma (Android'de çalışacaktır)
-const { Plugins } = Capacitor;
-const { Permissions } = Plugins; 
+// DÜZELTME 2: Capacitor API'lerini PC'de hata vermemesi için kontrol ederek içeri aktardık.
+let Plugins = {};
+let Permissions = {};
+if (typeof Capacitor !== 'undefined' && Capacitor.Plugins) {
+    Plugins = Capacitor.Plugins;
+    Permissions = Plugins.Permissions;
+}
+
 
 // =======================================================
-// 1. İzin Kontrol Fonksiyonu (KESİN ÇÖZÜM)
+// 1. İzin Kontrol Fonksiyonu (Nihai)
 // =======================================================
 
 async function checkAndRequestPermissions() {
     
-    // PC'de bu kod çalışmaz, sadece Android'de çalışır.
+    if (typeof Capacitor === 'undefined' || !Permissions || !Permissions.query) {
+        console.warn("Capacitor izin kontrolü başarısız. Sadece mobil uygulamada çalışır. İzin kontrolünü geçiyoruz.");
+        return true; 
+    }
+    
     try {
         // --- Kamera İzni Kontrol ve İsteği ---
         let cameraStatus = await Permissions.query({ name: 'camera' });
@@ -70,9 +79,8 @@ async function checkAndRequestPermissions() {
         
         return true; // İzinler başarılı
     } catch(e) {
-        // PC'de test ediyorsanız bu hatayı alın:
-        console.warn("Capacitor izin kontrolü başarısız. Sadece mobil uygulamada çalışır. İzin kontrolünü geçiyoruz.");
-        return true; // PC'de WebRTC'nin kendi izin isteme mekanizmasına bırakıyoruz.
+        console.warn("Capacitor izin kontrolü sırasında bir hata oluştu. İzin kontrolünü geçiyoruz.");
+        return true; 
     }
 }
 
