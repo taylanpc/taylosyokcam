@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🔐 Basit WebRTC Sohbet Odası</title>
+    <title>🔐 WebRTC Görüntülü Sohbet Odası - Yerel Kütüphane</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <script src="simplewebrtc.js"></script>
+
     <style>
-        /* Ana stil ayarları */
+        /* (Stil kodları burada devam eder, değişmedi) */
         body {
             font-family: sans-serif;
             background-color: #f4f7f6;
@@ -13,45 +16,13 @@
             padding: 20px;
         }
 
-        /* Video konteynerlerinin stili */
-        #remoteVideos {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-            margin-top: 20px;
-        }
-
-        /* Tüm video etiketlerinin stili */
-        video {
-            width: 100%;
-            height: auto;
-            max-width: 400px; /* Maksimum genişlik */
-            border: 3px solid #007bff;
-            border-radius: 8px;
-            background: #222;
-        }
-
-        /* Kendi videomuzun stili (daha küçük olabilir) */
-        #localVideo video {
-            max-width: 250px;
-            border-color: #28a745;
-        }
-
-        .video-container {
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 8px;
-            background: #fff;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Giriş ve buton stili */
         #roomNameInput, button {
             padding: 10px 15px;
             border-radius: 5px;
             border: 1px solid #ccc;
             font-size: 16px;
             margin-right: 10px;
+            margin-bottom: 20px;
         }
 
         button {
@@ -65,13 +36,41 @@
         button:hover {
             background-color: #0056b3;
         }
+
+        #remoteVideos {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            max-width: 400px;
+            border: 3px solid #007bff;
+            border-radius: 8px;
+            background: #222;
+        }
+
+        #localVideo video {
+            max-width: 250px;
+            border-color: #28a745;
+        }
+
+        .video-container {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
     </style>
-    <script src="https://simplewebrtc.com/latest-v3.js"></script>
 </head>
 <body>
 
     <h1>🎙️ Görüntülü Konuşma Girişi</h1>
-    <p>Aynı oda adını yazan herkes aynı görüşmeye katılır.</p>
+    <p>Aynı **oda adını** yazan herkes anında aynı görüşmeye katılır.</p>
 
     <div>
         <input type="text" id="roomNameInput" placeholder="Ortak Oda Adını Girin" required>
@@ -97,97 +96,99 @@
     <script>
         let webrtc = null;
 
-        function joinRoom() {
-            const roomName = document.getElementById('roomNameInput').value.trim();
-            const localVideoContainer = document.getElementById('localVideo');
-            const leaveButton = document.getElementById('leaveButton');
-
-            if (!roomName) {
-                alert("Lütfen bir Oda Adı girin.");
-                return;
-            }
-
-            // Eğer zaten bir WebRTC bağlantısı varsa, önce onu sonlandır
-            if (webrtc) {
-                webrtc.quit();
-            }
-
-            // Arayüzü güncelle
-            localVideoContainer.innerHTML = '<p>Kameranıza erişim izni bekleniyor...</p>';
-            document.getElementById('remoteVideos').innerHTML = '<p>Odada henüz kimse yok.</p>';
-            leaveButton.disabled = false;
-
-            // SimpleWebRTC'yi Başlat ve Odaya Bağlan
-            webrtc = new SimpleWebRTC({
-                localVideoEl: 'localVideo',
-                autoRequestMedia: true,
-                url: 'https://signal.simplewebrtc.com', // SimpleWebRTC'nin sinyalleşme sunucusu
-                room: roomName,
-                media: {
-                    video: true,
-                    audio: true
+        window.onload = function() {
+            window.joinRoom = function() {
+                // Burada SimpleWebRTC'nin tanımlı olduğundan artık eminiz, çünkü yerel dosya yüklendi.
+                if (typeof SimpleWebRTC === 'undefined') {
+                    // Yerel yükleme de başarısız olursa
+                    alert("KRİTİK HATA: Yerel kütüphane dosyası (simplewebrtc.js) yüklenemedi. Dosyanın doğru kaydedildiğinden emin olun.");
+                    return;
                 }
-            });
-
-            // 1. Kendi Görüntümüz Hazır Olduğunda
-            webrtc.on('localStream', function (stream) {
-                // Konteyneri temizle
-                localVideoContainer.innerHTML = '';
                 
-                // Kendi video etiketini oluştur
-                const video = document.createElement('video');
-                video.autoplay = true;
-                video.muted = true; // Kendi sesimizi yankı yapmaması için sessize alıyoruz
-                video.srcObject = stream;
-                localVideoContainer.appendChild(video);
-
-                alert(`'${roomName}' odasına başarıyla katıldınız. Lütfen kamera/mikrofon izni verdiğinizden emin olun.`);
-            });
-
-            // 2. Yeni Bir Kullanıcı Odaya Katıldığında
-            webrtc.on('videoAdded', function (video, peer) {
+                const roomName = document.getElementById('roomNameInput').value.trim();
+                const localVideoContainer = document.getElementById('localVideo');
                 const remoteVideosContainer = document.getElementById('remoteVideos');
+                const leaveButton = document.getElementById('leaveButton');
 
-                // Eğer "Odada henüz kimse yok" yazısı varsa, kaldır
-                if (remoteVideosContainer.querySelector('p')) {
-                    remoteVideosContainer.innerHTML = '';
+                if (!roomName) {
+                    alert("Lütfen bir Oda Adı girin.");
+                    return;
                 }
 
-                // Yeni kullanıcının videosunu yerleştirmek için bir konteyner oluştur
-                const container = document.createElement('div');
-                container.id = 'container_' + webrtc.getPeerID(peer);
-                container.className = 'video-container';
-                container.appendChild(video);
-                remoteVideosContainer.appendChild(container);
-
-                video.play();
-            });
-
-            // 3. Bir Kullanıcı Odadan Ayrıldığında
-            webrtc.on('videoRemoved', function (video, peer) {
-                const el = document.getElementById('container_' + webrtc.getPeerID(peer));
-                if (el) {
-                    el.remove();
+                if (webrtc) {
+                    webrtc.quit();
                 }
-                
-                // Eğer hiç kullanıcı kalmadıysa bilgilendirme yazısı ekle
-                if (document.getElementById('remoteVideos').children.length === 0) {
+
+                localVideoContainer.innerHTML = '<p>Kameranıza erişim izni bekleniyor...</p>';
+                remoteVideosContainer.innerHTML = '<p>Odada henüz kimse yok.</p>';
+                leaveButton.disabled = false;
+
+                // SimpleWebRTC'yi Başlat
+                webrtc = new SimpleWebRTC({
+                    localVideoEl: 'localVideo',
+                    autoRequestMedia: true,
+                    // Sadece sinyalleşme için internete bağlanacak, kütüphane için değil
+                    url: 'https://signal.simplewebrtc.com', 
+                    room: roomName,
+                    media: {
+                        video: true,
+                        audio: true
+                    }
+                });
+
+                // Kendi Görüntümüz Hazır Olduğunda
+                webrtc.on('localStream', function (stream) {
+                    localVideoContainer.innerHTML = '';
+                    
+                    const video = document.createElement('video');
+                    video.autoplay = true;
+                    video.muted = true; 
+                    video.srcObject = stream;
+                    localVideoContainer.appendChild(video);
+
+                    alert(`'${roomName}' odasına başarıyla katıldınız.`);
+                });
+
+                // Yeni Bir Kullanıcı Odaya Katıldığında
+                webrtc.on('videoAdded', function (video, peer) {
+                    if (remoteVideosContainer.querySelector('p')) {
+                        remoteVideosContainer.innerHTML = '';
+                    }
+
+                    const container = document.createElement('div');
+                    container.id = 'container_' + webrtc.getPeerID(peer);
+                    container.className = 'video-container';
+                    container.appendChild(video);
+                    remoteVideosContainer.appendChild(container);
+
+                    video.play();
+                });
+
+                // Bir Kullanıcı Odadan Ayrıldığında
+                webrtc.on('videoRemoved', function (video, peer) {
+                    const el = document.getElementById('container_' + webrtc.getPeerID(peer));
+                    if (el) {
+                        el.remove();
+                    }
+                    
+                    if (remoteVideosContainer.children.length === 0) {
+                        remoteVideosContainer.innerHTML = '<p>Odada henüz kimse yok.</p>';
+                    }
+                });
+            };
+
+            // Odadan Ayrılma Fonksiyonu
+            window.leaveRoom = function() {
+                if (webrtc) {
+                    webrtc.quit();
+                    webrtc = null;
+                    document.getElementById('localVideo').innerHTML = '<p>Kameranıza erişim izni bekliyor...</p>';
                     document.getElementById('remoteVideos').innerHTML = '<p>Odada henüz kimse yok.</p>';
+                    document.getElementById('leaveButton').disabled = true;
+                    alert("Odadan başarıyla ayrıldınız.");
                 }
-            });
-        }
-
-        // Odadan Ayrılma Fonksiyonu
-        function leaveRoom() {
-            if (webrtc) {
-                webrtc.quit();
-                webrtc = null;
-                document.getElementById('localVideo').innerHTML = '<p>Kameranıza erişim izni bekliyor...</p>';
-                document.getElementById('remoteVideos').innerHTML = '<p>Odada henüz kimse yok.</p>';
-                document.getElementById('leaveButton').disabled = true;
-                alert("Odadan ayrıldınız.");
-            }
-        }
+            };
+        };
     </script>
 </body>
 </html>
