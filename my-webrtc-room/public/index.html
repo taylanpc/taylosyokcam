@@ -32,161 +32,271 @@
         </div>
     </div>
 
-    <script>
-        const socket = io();
-        const localVideo = document.getElementById('localVideo');
-        const videosContainer = document.getElementById('videos');
-        const peers = {}; 
-        let localStream;
+   <script>
+// =======================================================
+// Global Değişkenler ve Capacitor Tanımları
+// =======================================================
+const socket = io();
+const localVideo = document.getElementById('localVideo');
+const videosContainer = document.getElementById('videos');
+const peers = {}; 
+let localStream;
 
-        async function connectRoom() {
-            const roomID = document.getElementById('roomInput').value.trim();
-            if (!roomID) {
-                alert("Lütfen bir oda adı girin.");
-                return;
-            }
+// Kayıt değişkenleri
+let mediaRecorder;
+let recordedChunks = []; 
 
+// Capacitor API'lerini içeri aktarma (İzin kontrolü için gerekli)
+const { Plugins } = Capacitor;
+const { Camera, App } = Plugins; 
+
+
+// =======================================================
+// 1. İzin Kontrol Fonksiyonu (WebRTC'den Önce Çalışır)
+// =======================================================
+
+async function checkAndRequestPermissions() {
+    // 1. Kamera izni durumunu kontrol et
+    let cameraStatus = await Camera.checkPermissions();
+    
+    // İzin verilmemişse, kullanıcıdan iste
+    if (cameraStatus.camera !== 'granted') {
+        let result = await Camera.requestPermissions();
+        if (result.camera !== 'granted') {
+            alert('Kamera izni verilmedi. Uygulama çalışmayacaktır.');
+            return false;
+        }
+    }
+    
+    // Not: Mikrofon izni genellikle kamera izni ile birlikte verilir.
+    return true; // İzinler başarılı
+}
+
+
+// =======================================================
+// 2. Kayıt Fonksiyonları
+// =======================================================
+
+// Kaydı Başlatma Fonksiyonu
+function startRecording(stream) {
+    if (!stream) return;
+    
+    const options = { mimeType: 'video/webm; codecs=vp8' }; 
+    mediaRecorder = new MediaRecorder(stream, options);
+    recordedChunks = []; 
+
+    mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+        }
+    };
+
+    // Kayıt durdurulduğunda dosyayı hazırlayıp kaydetme
+    mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        
+        // Dosya adı oluşturma: TaylosCAM_YYYYMMDD_HHMMSS.webm
+        const now = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const fileName = `TaylosCAM_${now}.webm`;
+
+        // Dosya linki oluşturma ve indirme (Telefonda "İndirilenler" klasörüne kaydeder)
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        document.body.appendChild(a);
+        a.style = 'display: none';
+        a.href = url;
+        a.download = fileName; 
+        a.click(); 
+        window.URL.revokeObjectURL(url);
+        
+        console.log("Kayıt dosyası indiriliyor:", fileName);
+    };
+
+    mediaRecorder.start(); 
+    console.log("Video kaydı başlatıldı...");
+}
+
+
+// Kaydı Durdurma Fonksiyonu (Uygulama Kapanınca Çalışır)
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        console.log("Video kaydı durduruldu ve indirme başlatıldı.");
+    }
+}
+
+
+// =======================================================
+// 3. WebRTC İşlevleri ve Socket.IO
+// =======================================================
+
+async function connectRoom() {
+    const roomID = document.getElementById('roomInput').value.trim();
+    if (!roomID) {
+        alert("Lütfen bir oda adı girin.");
+        return;
+    }
+    
+    // İzin Kontrolünü Ekleme (APK İzin Sorunu Çözümü)
+    const hasPermission = await checkAndRequestPermissions();
+    if (!hasPermission) {
+        return;
+    }
+
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: { echoCancellation: true }
+        });
+        localVideo.srcObject = localStream;
+        
+        // KAYDI BAŞLAT
+        startRecording(localStream); 
+        
+        document.querySelectorAll('.controls button').forEach(btn => btn.disabled = false);
+        document.getElementById('joinButton').disabled = true;
+
+        socket.emit('joinRoom', roomID);
+
+    } catch (err) {
+        console.error("Medya erişim hatası:", err);
+        alert("Kamera ve mikrofon erişimi reddedildi veya bulunamadı.");
+    }
+}
+    
+function disconnect() {
+    // Kaydı Durdurma ve Kaydetme (Uygulamadan çıkılırken)
+    stopRecording(); 
+    
+    for (const id in peers) {
+        peers[id].close();
+    }
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+    }
+    window.location.reload();
+}
+
+// Socket.IO Olayları (DEĞİŞTİRİLMEDİ)
+socket.on('userJoined', (peerID) => {
+    const newPeer = createPeerConnection(peerID, true); 
+    peers[peerID] = newPeer;
+});
+
+socket.on('userDisconnected', (peerID) => {
+    if (peers[peerID]) {
+        peers[peerID].close();
+        delete peers[peerID];
+    }
+    const container = document.getElementById(`container-${peerID}`);
+    if (container) {
+        container.remove();
+    }
+});
+
+socket.on('signal', async (data) => {
+    if (!peers[data.senderID]) {
+        peers[data.senderID] = createPeerConnection(data.senderID, false); 
+    }
+
+    const peerConnection = peers[data.senderID];
+    const signal = data.signal;
+
+    try {
+        if (signal.type === 'offer') {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('signal', { targetID: data.senderID, signal: peerConnection.localDescription });
+        
+        } else if (signal.type === 'answer') {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+        
+        } else if (signal.candidate) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+        }
+    } catch (err) {
+        console.error("Sinyalleşme işleme hatası:", err);
+    }
+});
+
+function createPeerConnection(peerID, isInitiator) {
+    const peerConnection = new RTCPeerConnection({
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    });
+
+    localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+            socket.emit('signal', { targetID: peerID, signal: { candidate: candidate } });
+        }
+    };
+
+    peerConnection.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        let remoteVideo = document.getElementById(`video-${peerID}`);
+
+        if (!remoteVideo) {
+            const container = document.createElement('div');
+            container.id = `container-${peerID}`;
+            container.innerHTML = `<h3>Kullanıcı ${peerID.substring(0, 4)}...</h3>`;
+            remoteVideo = document.createElement('video');
+            remoteVideo.id = `video-${peerID}`;
+            remoteVideo.autoplay = true;
+            remoteVideo.srcObject = remoteStream;
+            container.appendChild(remoteVideo);
+            videosContainer.appendChild(container);
+        } else {
+            remoteVideo.srcObject = remoteStream;
+        }
+    };
+
+    if (isInitiator) {
+        peerConnection.onnegotiationneeded = async () => {
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                localVideo.srcObject = localStream;
-                
-                document.querySelectorAll('.controls button').forEach(btn => btn.disabled = false);
-                document.getElementById('joinButton').disabled = true;
-
-                socket.emit('joinRoom', roomID);
-
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                socket.emit('signal', { targetID: peerID, signal: peerConnection.localDescription });
             } catch (err) {
-                console.error("Medya erişim hatası:", err);
-                alert("Kamera ve mikrofon erişimi reddedildi veya bulunamadı.");
+                console.error("Teklif oluşturma hatası:", err);
             }
-        }
-        
-        function disconnect() {
-            for (const id in peers) {
-                peers[id].close();
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-            window.location.reload();
-        }
+        };
+    }
 
-        socket.on('userJoined', (peerID) => {
-            const newPeer = createPeerConnection(peerID, true); // true: offer oluştur
-            peers[peerID] = newPeer;
-        });
-        
-        socket.on('userDisconnected', (peerID) => {
-            if (peers[peerID]) {
-                peers[peerID].close();
-                delete peers[peerID];
-            }
-            const container = document.getElementById(`container-${peerID}`);
-            if (container) {
-                container.remove();
-            }
-        });
+    return peerConnection;
+}
 
-        socket.on('signal', async (data) => {
-            if (!peers[data.senderID]) {
-                peers[data.senderID] = createPeerConnection(data.senderID, false); 
-            }
+// Buton Fonksiyonları (DEĞİŞTİRİLMEDİ)
+function toggleVideo() {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        document.getElementById('videoButton').textContent = videoTrack.enabled ? 'Video Kapat' : 'Video Aç';
+    }
+}
 
-            const peerConnection = peers[data.senderID];
-            const signal = data.signal;
+function toggleAudio() {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        document.getElementById('audioButton').textContent = audioTrack.enabled ? 'Mikrofon Kapat' : 'Mikrofon Aç';
+    }
+}
 
-            try {
-                if (signal.type === 'offer') {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    socket.emit('signal', { targetID: data.senderID, signal: peerConnection.localDescription });
-                
-                } else if (signal.type === 'answer') {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-                
-                } else if (signal.candidate) {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
-                }
-            } catch (err) {
-                console.error("Sinyalleşme işleme hatası:", err);
-            }
-        });
+// Global olarak erişilebilirliği koru
+window.connectRoom = connectRoom;
+window.toggleVideo = toggleVideo;
+window.toggleAudio = toggleAudio;
+window.disconnect = disconnect;
 
-        function createPeerConnection(peerID, isInitiator) {
-            // Google'ın herkese açık STUN sunucusunu kullanıyoruz
-            const peerConnection = new RTCPeerConnection({
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
-            });
-
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-            });
-
-            peerConnection.onicecandidate = ({ candidate }) => {
-                if (candidate) {
-                    socket.emit('signal', { targetID: peerID, signal: { candidate: candidate } });
-                }
-            };
-
-            peerConnection.ontrack = (event) => {
-                const remoteStream = event.streams[0];
-                let remoteVideo = document.getElementById(`video-${peerID}`);
-
-                if (!remoteVideo) {
-                    const container = document.createElement('div');
-                    container.id = `container-${peerID}`;
-                    container.innerHTML = `<h3>Kullanıcı ${peerID.substring(0, 4)}...</h3>`;
-                    remoteVideo = document.createElement('video');
-                    remoteVideo.id = `video-${peerID}`;
-                    remoteVideo.autoplay = true;
-                    remoteVideo.srcObject = remoteStream;
-                    container.appendChild(remoteVideo);
-                    videosContainer.appendChild(container);
-                } else {
-                    remoteVideo.srcObject = remoteStream;
-                }
-            };
-
-            if (isInitiator) {
-                peerConnection.onnegotiationneeded = async () => {
-                    try {
-                        const offer = await peerConnection.createOffer();
-                        await peerConnection.setLocalDescription(offer);
-                        socket.emit('signal', { targetID: peerID, signal: peerConnection.localDescription });
-                    } catch (err) {
-                        console.error("Teklif oluşturma hatası:", err);
-                    }
-                };
-            }
-
-            return peerConnection;
-        }
-        
-        function toggleVideo() {
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = !videoTrack.enabled;
-                document.getElementById('videoButton').textContent = videoTrack.enabled ? 'Video Kapat' : 'Video Aç';
-            }
-        }
-        
-        function toggleAudio() {
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                document.getElementById('audioButton').textContent = audioTrack.enabled ? 'Mikrofon Kapat' : 'Mikrofon Aç';
-            }
-        }
-        
-        window.connectRoom = connectRoom;
-        window.toggleVideo = toggleVideo;
-        window.toggleAudio = toggleAudio;
-        window.disconnect = disconnect;
-
-    </script>
+// Uygulama kapandığında kaydı otomatik durdur ve kaydet
+window.addEventListener('beforeunload', stopRecording);
+</script>
 </body>
 </html>
